@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Datos de SGM58031</title>
+    <style>
+        body {
+            background-color: green; /* Fondo verde */
+            font-family: Arial, sans-serif; /* Fuente legible */
+            color: white; /* Color de texto */
+            text-align: center; /* Centrar texto */
+        }
+        h1, h2 {
+            font-size: 2em; /* Tamaño de letra más grande */
+            margin: 20px 0; /* Espaciado */
+        }
+        .microcontroller {
+            margin-bottom: 15px;
+        }
+        #history {
+            margin-top: 20px;
+            display: none; /* Oculta el historial por defecto */
+        }
+        #chartContainer {
+            margin-top: 20px;
+            display: none; /* Oculta la gráfica por defecto */
+        }
+        canvas {
+            max-width: 600px;
+            margin: 20px auto;
+        }
+        button {
+            font-size: 1.2em; /* Tamaño de letra más grande para botones */
+            margin: 10px; /* Espaciado entre botones */
+        }
+        #status {
+            font-size: 1.5em; /* Tamaño de letra para el estado */
+            margin: 20px 0; /* Espaciado */
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>Datos de SGM58031</h1>
+    
+    <div id="status">Conectando...</div> <!-- Mensaje de estado -->
+    
+    <div>
+        <h2>Configurar Microcontroladores</h2>
+        <button onclick="addMicrocontroller()">Agregar Microcontrolador</button>
+        <div id="microcontrollers"></div>
+    </div>
+
+    <div>
+        <h2>Datos Microcontroladores</h2>
+        <div id="data"></div>
+    </div>
+
+    <div>
+        <button onclick="toggleHistory()">Mostrar/Ocultar Historial</button>
+        <button onclick="toggleChart()">Mostrar/Ocultar Gráfica</button>
+    </div>
+    
+    <div id="history">
+        <h2>Historial de Datos</h2>
+        <div id="historyData"></div>
+    </div>
+
+    <div id="chartContainer">
+        <h2>Gráfica de Datos</h2>
+        <canvas id="historyChart"></canvas>
+    </div>
+
+    <script>
+        const EXPIRATION_TIME = 60 * 24 * 60 * 1000; // 60 días en milisegundos
+        let microcontrollers = [];
+        let chartData = { labels: [], datasets: [] };
+
+        function addMicrocontroller() {
+            if (microcontrollers.length < 20) {
+                const index = microcontrollers.length + 1;
+                microcontrollers.push(`http://ip${index}`);
+                const container = document.createElement('div');
+                container.classList.add('microcontroller');
+                container.innerHTML = `
+                    <input type="text" id="ipInput${index}" placeholder="IP Microcontrolador ${index}">
+                    <button onclick="updateIP(${index})">Guardar</button>
+                    <p id="data${index}">Esperando datos...</p>
+                `;
+                document.getElementById('microcontrollers').appendChild(container);
+            } else {
+                alert("Solo se pueden agregar hasta 20 microcontroladores.");
+            }
+        }
+
+        function updateIP(index) {
+            const ip = document.getElementById(`ipInput${index}`).value;
+            microcontrollers[index - 1] = ip;
+            document.getElementById(`data${index}`).innerHTML = 'Esperando datos...';
+        }
+
+        async function fetchData(ip) {
+            try {
+                const response = await fetch(ip);
+                if (!response.ok) throw new Error('Network response was not ok');
+                const text = await response.text();
+                return text;
+            } catch (error) {
+                return 'Error al obtener datos';
+            }
+        }
+
+        async function updateData() {
+            let allConnected = true; // Variable para verificar conexión
+            microcontrollers.forEach(async (ip, index) => {
+                if (ip) {
+                    const data = await fetchData(ip);
+                    document.getElementById(`data${index + 1}`).innerHTML = data;
+                    storeData(index + 1, data);
+
+                    // Verifica si los datos fueron obtenidos correctamente
+                    if (data.includes('Error')) {
+                        allConnected = false;
+                    }
+                }
+            });
+            document.getElementById('status').textContent = allConnected ? 'Conectado correctamente' : 'Error en la conexión';
+        }
+
+        function storeData(index, data) {
+            const currentTime = Date.now();
+            const expirationTime = currentTime + EXPIRATION_TIME;
+            const storageKey = `microcontroller_${index}`;
+            const value = { data, expirationTime };
+
+            localStorage.setItem(storageKey, JSON.stringify(value));
+            addToHistory(index, data); // Agregar al historial
+        }
+
+        function addToHistory(index, data) {
+            const historyContainer = document.getElementById('historyData');
+            const entry = document.createElement('div');
+            entry.textContent = `Microcontrolador ${index}: ${data} (Guardado el ${new Date().toLocaleString()})`;
+            historyContainer.appendChild(entry);
+
+            // Guardar historial en localStorage
+            const historyKey = `history_microcontroller_${index}`;
+            let historyData = JSON.parse(localStorage.getItem(historyKey)) || [];
+            historyData.push(entry.textContent);
+            localStorage.setItem(historyKey, JSON.stringify(historyData));
+
+            // Agregar datos a la gráfica
+            chartData.labels.push(new Date().toLocaleString());
+            chartData.datasets.push({
+                label: `Microcontrolador ${index}`,
+                data: [parseFloat(data)], // Convierte el dato a número
+                borderColor: `hsl(${Math.random() * 360}, 100%, 50%)`,
+                fill: false,
+                tension: 0.1
+            });
+
+            renderChart();
+        }
+
+        function loadData() {
+            microcontrollers.forEach((_, index) => {
+                const storageKey = `microcontroller_${index + 1}`;
+                const storedValue = localStorage.getItem(storageKey);
+
+                if (storedValue) {
+                    const { data, expirationTime } = JSON.parse(storedValue);
+                    const currentTime = Date.now();
+
+                    if (currentTime < expirationTime) {
+                        document.getElementById(`data${index + 1}`).innerHTML = data;
+                        addToHistory(index + 1, data); // Cargar datos al historial
+                    } else {
+                        localStorage.removeItem(storageKey); // Borra el dato si ha expirado
+                    }
+                }
+            });
+        }
+
+        function loadHistory() {
+            microcontrollers.forEach((_, index) => {
+                const historyKey = `history_microcontroller_${index + 1}`;
+                const storedHistory = JSON.parse(localStorage.getItem(historyKey)) || [];
+
+                storedHistory.forEach(entry => {
+                    const historyContainer = document.getElementById('historyData');
+                    const historyEntry = document.createElement('div');
+                    historyEntry.textContent = entry;
+                    historyContainer.appendChild(historyEntry);
+                });
+            });
+        }
+
+        function toggleHistory() {
+            const historyDiv = document.getElementById('history');
+            historyDiv.style.display = (historyDiv.style.display === 'none') ? 'block' : 'none';
+        }
+
+        function toggleChart() {
+            const chartDiv = document.getElementById('chartContainer');
+            chartDiv.style.display = (chartDiv.style.display === 'none') ? 'block' : 'none';
+        }
+
+        let chart;
+        function renderChart() {
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            if (chart) {
+                chart.destroy(); // Destruye la gráfica existente si hay una
+            }
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartData.labels,
+                    datasets: chartData.datasets
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Tiempo'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Valor'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        setInterval(updateData, 5000); // Actualiza cada 5 segundos
+        loadData(); // Carga datos al iniciar
+        loadHistory(); // Carga historial al iniciar
+    </script>
+</body>
+</html>
